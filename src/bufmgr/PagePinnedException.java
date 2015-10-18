@@ -7,5 +7,9 @@ public class PagePinnedException extends ChainException {
     {
       super(e, name); 
     }
+
+    PagePinnedException() {
+        throw new UnsupportedOperationException("Not yet implemented");
+    }
 }
 
