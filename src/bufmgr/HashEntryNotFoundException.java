@@ -7,5 +7,9 @@ public class HashEntryNotFoundException extends ChainException {
     {
       super(e, name); 
     }
+
+    HashEntryNotFoundException() {
+        throw new UnsupportedOperationException("Not yet implemented");
+    }
 }
 
