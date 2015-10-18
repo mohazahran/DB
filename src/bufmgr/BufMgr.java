@@ -14,6 +14,7 @@ import java.io.RandomAccessFile;
 
 import chainexception.ChainException;
 
+
 public class BufMgr implements GlobalConst {
 	/**
 	 * Create the BufMgr object.
@@ -45,7 +46,10 @@ public class BufMgr implements GlobalConst {
 	 * @param page the pointer point to the page.
 	 * @param emptyPage true (empty page); false (non-empty page)
 	 */
-	public void pinPage(PageId pageno, Page page, boolean emptyPage) {};
+	public void pinPage(PageId pageno, Page page, boolean emptyPage) throws PagePinnedException 
+        {
+            throw new PagePinnedException();
+        };
 
 	/**
 	 * Unpin a page specified by a pageId.
@@ -63,7 +67,10 @@ public class BufMgr implements GlobalConst {
 	 * @param pageno page number in the Minibase.
 	 * @param dirty the dirty bit of the frame
 	 */
-	public void unpinPage(PageId pageno, boolean dirty) {};
+	public void unpinPage(PageId pageno, boolean dirty) throws PagePinnedException 
+        {
+            throw new PagePinnedException();
+        };
 
 	/**
 	 * Allocate new pages.
@@ -90,7 +97,10 @@ public class BufMgr implements GlobalConst {
 	 *
 	 * @param globalPageId the page number in the data base.
 	 */
-	public void freePage(PageId globalPageId) {};
+	public void freePage(PageId globalPageId) throws HashEntryNotFoundException 
+        {
+            throw new HashEntryNotFoundException();
+        };
 
 	/**
 	 * Used to flush a particular page of the buffer pool to disk.
