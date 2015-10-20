@@ -11,11 +11,21 @@ import global.PageId;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.util.Arrays;
 
 import chainexception.ChainException;
-
+import diskmgr.FileIOException;
+import diskmgr.InvalidPageNumberException;
 
 public class BufMgr implements GlobalConst {
+	
+	private byte[] _bufPool;
+	private Descriptor[] _bufDescr;
+	String _replacementPolicy;
+	AMHash pFHash;
+	int _numOfFrames; // total number of frames in buffer pool
+	int _numOfUnpinned;// count of used frames with piCount zero
+	int _numOfFreeFrames; // count of unused frames
 	/**
 	 * Create the BufMgr object.
 	 * Allocate pages (frames) for the buffer pool in main memory and
@@ -26,7 +36,19 @@ public class BufMgr implements GlobalConst {
 	 * @param lookAheadSize number of pages to be looked ahead, you can ignore that parameter
 	 * @param replacementPolicy Name of the replacement policy, that parameter will be set to "LRFU"
 	 */
-	public BufMgr(int numbufs, int lookAheadSize, String replacementPolicy) {};
+	public BufMgr(int numbufs, int lookAheadSize, String replacementPolicy) {
+		_replacementPolicy = replacementPolicy;
+		_bufPool = new byte[numbufs*PAGE_SIZE];
+		_bufDescr = new Descriptor[numbufs];
+		for(int i=0; i<numbufs; i++) {
+			_bufDescr[i] = new Descriptor();
+		}
+		_numOfFrames = numbufs;
+		_numOfFreeFrames = numbufs;
+		_numOfUnpinned = 0;
+		
+		pFHash = new AMHash();
+	};
 
 	/**
 	 * Pin a page.
@@ -46,10 +68,71 @@ public class BufMgr implements GlobalConst {
 	 * @param page the pointer point to the page.
 	 * @param emptyPage true (empty page); false (non-empty page)
 	 */
-	public void pinPage(PageId pageno, Page page, boolean emptyPage) throws PagePinnedException 
-        {
-            throw new PagePinnedException();
-        };
+	public void pinPage(PageId pageno, Page page, boolean emptyPage) throws BufferPoolExceededException {
+		
+		int fNumber = pFHash.getEntry(pageno);
+		if(fNumber >= 0) {
+			_bufDescr[fNumber]._pinCount++;
+			if(_bufDescr[fNumber]._pinCount == 1) {
+				_numOfUnpinned--;
+			}
+		}
+		else {
+			if(_numOfUnpinned + _numOfFreeFrames == 0) {
+				throw new BufferPoolExceededException(null, "Buffer Pool Exceeded");
+			}
+			else if(_numOfFreeFrames > 0) {
+				_numOfFreeFrames--;
+				for(int i=0; i<_numOfFrames; i++) {
+					if(_bufDescr[i]._pId == null) {
+						// replace this page
+						_bufDescr[i]._pId = pageno;
+						_bufDescr[i]._pinCount = 1;
+						System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
+						pFHash.insertEntry(pageno,i);
+						return;
+					}
+				}
+			}
+			else {
+				_numOfUnpinned--;
+				for(int i=0; i<_numOfFrames; i++) {
+					if(_bufDescr[i]._pinCount == 0) {
+						// replace this page
+						if(_bufDescr[i]._dirtyBit == false) {
+							_bufDescr[i]._pId = pageno;
+							_bufDescr[i]._pinCount = 1;
+							System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
+							pFHash.insertEntry(pageno,i);
+							return;
+						}
+						else {
+							try {
+								Minibase.DiskManager.write_page(_bufDescr[i]._pId, 
+										new Page(Arrays.copyOfRange(_bufPool, i*PAGE_SIZE, (i+1)*PAGE_SIZE)));
+							} catch (InvalidPageNumberException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							} catch (FileIOException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							} catch (IOException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							}
+							
+							_bufDescr[i]._pId = pageno;
+							_bufDescr[i]._pinCount = 1;
+							_bufDescr[i]._dirtyBit = false;
+							System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
+							pFHash.insertEntry(pageno,i);
+							return;
+						}
+					}
+				}
+			}
+		}
+	};
 
 	/**
 	 * Unpin a page specified by a pageId.
@@ -67,10 +150,9 @@ public class BufMgr implements GlobalConst {
 	 * @param pageno page number in the Minibase.
 	 * @param dirty the dirty bit of the frame
 	 */
-	public void unpinPage(PageId pageno, boolean dirty) throws PagePinnedException 
-        {
-            throw new PagePinnedException();
-        };
+	public void unpinPage(PageId pageno, boolean dirty) throws PageUnPinnedException {
+		
+	};
 
 	/**
 	 * Allocate new pages.
@@ -97,9 +179,9 @@ public class BufMgr implements GlobalConst {
 	 *
 	 * @param globalPageId the page number in the data base.
 	 */
-	public void freePage(PageId globalPageId) throws HashEntryNotFoundException 
+	public void freePage(PageId globalPageId) throws PagePinnedException 
         {
-            throw new HashEntryNotFoundException();
+            
         };
 
 	/**
@@ -120,14 +202,14 @@ public class BufMgr implements GlobalConst {
 	 * Returns the total number of buffer frames.
 	 */
 	public int getNumBuffers() {
-		return -1;
+		return _numOfFrames;
 	}
 
 	/**
 	 * Returns the total number of unpinned buffer frames.
 	 */
 	public int getNumUnpinned() {
-		return -1;
+		return _numOfUnpinned;
 	}
 
 };
