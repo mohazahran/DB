@@ -9,7 +9,7 @@ public class AMHash {
 	private ArrayList<BucketEntry>[] _buckets;
 	private int a = 997; // prime
 	private int b = 463; // prime
-	private int HTSIZE = 839; // prime
+	private int HTSIZE = 839; // prime	
 	
 	@SuppressWarnings("unchecked")
 	public AMHash() {
@@ -31,6 +31,22 @@ public class AMHash {
 		return true;
 	}
 	
+	public boolean removeEntry(PageId pageNumber) {
+		int hValue = a*pageNumber.pid + b;
+		hValue = hValue % HTSIZE;
+		
+		ArrayList<BucketEntry> temp = _buckets[hValue];
+		for(int i=0; i< temp.size(); i++) {
+			BucketEntry be = (BucketEntry)temp.get(i);
+			if(be._pageNumber.pid == pageNumber.pid) {
+				_buckets[hValue].remove(i);
+				return true;
+			}
+		}
+		
+		return false;
+	}
+	
 	public int getEntry(PageId pageNumber) {
 		int hValue = a*pageNumber.pid + b;
 		hValue = hValue % HTSIZE;
@@ -39,7 +55,8 @@ public class AMHash {
 		for(int i=0; i< temp.size(); i++) {
 			BucketEntry be = (BucketEntry)temp.get(i);
 			if(be._pageNumber.pid == pageNumber.pid) {
-				return be._frameNumber;
+				
+				return be._frameNumber;				
 			}
 		}
 		return -1;

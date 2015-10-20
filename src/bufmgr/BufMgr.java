@@ -18,9 +18,9 @@ import diskmgr.FileIOException;
 import diskmgr.InvalidPageNumberException;
 
 public class BufMgr implements GlobalConst {
-	
-	private byte[] _bufPool;
-	private Descriptor[] _bufDescr;
+	public static int _time = 0;
+	public byte[] _bufPool;
+	public Descriptor[] _bufDescr;
 	String _replacementPolicy;
 	AMHash pFHash;
 	int _numOfFrames; // total number of frames in buffer pool
@@ -68,10 +68,10 @@ public class BufMgr implements GlobalConst {
 	 * @param page the pointer point to the page.
 	 * @param emptyPage true (empty page); false (non-empty page)
 	 */
-	public void pinPage(PageId pageno, Page page, boolean emptyPage) throws BufferPoolExceededException {
-		
+	public void pinPage(PageId pageno, Page page, boolean emptyPage) throws BufferPoolExceededException {		
 		int fNumber = pFHash.getEntry(pageno);
 		if(fNumber >= 0) {
+			_bufDescr[fNumber]._times.add(_time); _time++;
 			_bufDescr[fNumber]._pinCount++;
 			if(_bufDescr[fNumber]._pinCount == 1) {
 				_numOfUnpinned--;
@@ -88,6 +88,7 @@ public class BufMgr implements GlobalConst {
 						// replace this page
 						_bufDescr[i]._pId = pageno;
 						_bufDescr[i]._pinCount = 1;
+						_bufDescr[i]._times.add(_time); _time++;
 						System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
 						pFHash.insertEntry(pageno,i);
 						return;
@@ -96,43 +97,65 @@ public class BufMgr implements GlobalConst {
 			}
 			else {
 				_numOfUnpinned--;
-				for(int i=0; i<_numOfFrames; i++) {
-					if(_bufDescr[i]._pinCount == 0) {
-						// replace this page
-						if(_bufDescr[i]._dirtyBit == false) {
-							_bufDescr[i]._pId = pageno;
-							_bufDescr[i]._pinCount = 1;
-							System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
-							pFHash.insertEntry(pageno,i);
-							return;
-						}
-						else {
-							try {
-								Minibase.DiskManager.write_page(_bufDescr[i]._pId, 
-										new Page(Arrays.copyOfRange(_bufPool, i*PAGE_SIZE, (i+1)*PAGE_SIZE)));
-							} catch (InvalidPageNumberException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							} catch (FileIOException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							} catch (IOException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							}
-							
-							_bufDescr[i]._pId = pageno;
-							_bufDescr[i]._pinCount = 1;
-							_bufDescr[i]._dirtyBit = false;
-							System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
-							pFHash.insertEntry(pageno,i);
-							return;
-						}
+				PageId replaceCandidate = chooseReplacement();
+				int i = replaceCandidate.pid;
+
+				// replace this page
+				_bufDescr[i]._times.clear();
+				_bufDescr[i]._times.add(_time); _time++;
+				
+				if(_bufDescr[i]._dirtyBit == false) {
+					pFHash.removeEntry(_bufDescr[i]._pId);
+					_bufDescr[i]._pId = pageno;
+					_bufDescr[i]._pinCount = 1;							
+					System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);							
+					pFHash.insertEntry(pageno,i);
+					return;
+				}
+				else { // dirty
+					try {
+						Minibase.DiskManager.write_page(_bufDescr[i]._pId, 
+								new Page(Arrays.copyOfRange(_bufPool, i*PAGE_SIZE, (i+1)*PAGE_SIZE)));
+					} catch (InvalidPageNumberException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (FileIOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
 					}
+					pFHash.removeEntry(_bufDescr[i]._pId);
+					_bufDescr[i]._pId = pageno;
+					_bufDescr[i]._pinCount = 1;
+					_bufDescr[i]._dirtyBit = false;
+					System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
+					pFHash.insertEntry(pageno,i);
+					return;
 				}
 			}
 		}
 	};
+
+	private PageId chooseReplacement() {
+		// TODO Auto-generated method stub
+		float minCRF = 1000000;
+		PageId rPage = null;
+		for (int i =0; i<_bufDescr.length; i++){
+			if(_bufDescr[i]._pinCount==0){
+				float tempCRF = 0;
+				for(int t=0; t<_bufDescr[i]._times.size();t++){
+					tempCRF += (float)1.0/(float)(_time-_bufDescr[i]._times.get(t)+1);
+				}
+				if(tempCRF<minCRF){
+					minCRF = tempCRF;
+					rPage = _bufDescr[i]._pId;
+				}
+			}				
+		}
+		return rPage;
+	}
 
 	/**
 	 * Unpin a page specified by a pageId.
@@ -152,6 +175,22 @@ public class BufMgr implements GlobalConst {
 	 */
 	public void unpinPage(PageId pageno, boolean dirty) throws PageUnPinnedException {
 		
+		int fNo = pFHash.getEntry(pageno);	
+		if(fNo >= 0){
+			if(_bufDescr[fNo]._pinCount==0){
+				throw new PageUnPinnedException(null, "Page UnPinned Exception");			
+			}
+			_bufDescr[fNo]._pinCount--;
+			_bufDescr[fNo]._times.add(_time);
+			if(dirty) {
+				_bufDescr[fNo]._dirtyBit = dirty;
+			}
+			_time++;	
+		}
+		else{
+			return;
+			//TODO add exptn.
+		}
 	};
 
 	/**
@@ -169,7 +208,24 @@ public class BufMgr implements GlobalConst {
 	 * @return the first page id of the new pages.__ null, if error.
 	 */
 	public PageId newPage(Page firstpage, int howmany) {
-		return null;
+		if(_numOfUnpinned + _numOfFreeFrames == 0) {
+			return null;
+		}
+		
+		PageId fPId = null;
+		try {
+			fPId = Minibase.DiskManager.allocate_page(howmany);
+		} catch (ChainException | IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		try {
+			pinPage(fPId, firstpage, true);
+		} catch (BufferPoolExceededException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return fPId;
 	};
 
 	/**
@@ -179,10 +235,24 @@ public class BufMgr implements GlobalConst {
 	 *
 	 * @param globalPageId the page number in the data base.
 	 */
-	public void freePage(PageId globalPageId) throws PagePinnedException 
-        {
-            
-        };
+	public void freePage(PageId globalPageId) throws PagePinnedException {
+		
+		int fNo = pFHash.getEntry(globalPageId);
+		if(fNo >= 0) {
+			_numOfFreeFrames++;
+			if(_bufDescr[fNo]._pinCount == 0) {
+				_numOfUnpinned--;
+			}
+			_bufDescr[fNo].clear();
+		}
+		
+		try {
+			Minibase.DiskManager.deallocate_page(globalPageId);
+		} catch (ChainException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	};
 
 	/**
 	 * Used to flush a particular page of the buffer pool to disk.
@@ -190,13 +260,59 @@ public class BufMgr implements GlobalConst {
 	 *
 	 * @param pageid the page number in the database.
 	 */
-	public void flushPage(PageId pageid) {};
+	public void flushPage(PageId pageid) {
+		int fNo = pFHash.getEntry(pageid);	
+		if(fNo >= 0){
+			try {
+				Minibase.DiskManager.write_page(_bufDescr[fNo]._pId, 
+						new Page(Arrays.copyOfRange(_bufPool, fNo*PAGE_SIZE, (fNo+1)*PAGE_SIZE)));
+			} catch (InvalidPageNumberException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (FileIOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			_bufDescr[fNo]._dirtyBit = false;
+			_bufDescr[fNo]._times.add(_time);
+			_time++;
+			return;
+		}	
+		else{
+			return;
+			//TODO add exptn.
+		}
+	};
 
 	/**
 	 * Used to flush all dirty pages in the buffer pool to disk
 	 *
 	 */
-	public void flushAllPages() {};
+	public void flushAllPages() {
+		for(int i=0; i< _bufDescr.length; i++) {
+			if(_bufDescr[i]._dirtyBit) {
+				try {
+					Minibase.DiskManager.write_page(_bufDescr[i]._pId, 
+							new Page(Arrays.copyOfRange(_bufPool, i*PAGE_SIZE, (i+1)*PAGE_SIZE)));
+				} catch (InvalidPageNumberException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (FileIOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+				_bufDescr[i]._dirtyBit = false;
+				_bufDescr[i]._times.add(_time);
+				_time++;
+			}
+		}
+	};
 
 	/**
 	 * Returns the total number of buffer frames.
