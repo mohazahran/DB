@@ -19,7 +19,7 @@ import diskmgr.InvalidPageNumberException;
 
 public class BufMgr implements GlobalConst {
 	public static int _time = 0;
-	public byte[] _bufPool;
+	public Page[] _bufPool;
 	public Descriptor[] _bufDescr;
 	String _replacementPolicy;
 	AMHash pFHash;
@@ -38,9 +38,10 @@ public class BufMgr implements GlobalConst {
 	 */
 	public BufMgr(int numbufs, int lookAheadSize, String replacementPolicy) {
 		_replacementPolicy = replacementPolicy;
-		_bufPool = new byte[numbufs*PAGE_SIZE];
+		_bufPool = new Page[numbufs];
 		_bufDescr = new Descriptor[numbufs];
 		for(int i=0; i<numbufs; i++) {
+			_bufPool[i] = new Page();
 			_bufDescr[i] = new Descriptor();
 		}
 		_numOfFrames = numbufs;
@@ -74,8 +75,9 @@ public class BufMgr implements GlobalConst {
 			_bufDescr[fNumber]._times.add(_time); _time++;
 			_bufDescr[fNumber]._pinCount++;
 			if(_bufDescr[fNumber]._pinCount == 1) {
-				_numOfUnpinned--;
+				_numOfUnpinned--;				
 			}
+			page.setPage(_bufPool[fNumber]);
 		}
 		else {
 			if(_numOfUnpinned + _numOfFreeFrames == 0) {
@@ -89,7 +91,14 @@ public class BufMgr implements GlobalConst {
 						_bufDescr[i]._pId = pageno;
 						_bufDescr[i]._pinCount = 1;
 						_bufDescr[i]._times.add(_time); _time++;
-						System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
+						try {
+							Minibase.DiskManager.read_page(pageno, _bufPool[i]);
+						} catch (InvalidPageNumberException | FileIOException
+								| IOException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+						page.setPage(_bufPool[i]);
 						pFHash.insertEntry(pageno,i);
 						return;
 					}
@@ -108,14 +117,20 @@ public class BufMgr implements GlobalConst {
 					pFHash.removeEntry(_bufDescr[i]._pId);
 					_bufDescr[i]._pId = pageno;
 					_bufDescr[i]._pinCount = 1;							
-					System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);							
+					try {
+						Minibase.DiskManager.read_page(pageno, _bufPool[i]);
+					} catch (InvalidPageNumberException | FileIOException
+							| IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					page.setPage(_bufPool[i]);
 					pFHash.insertEntry(pageno,i);
 					return;
 				}
 				else { // dirty
 					try {
-						Minibase.DiskManager.write_page(_bufDescr[i]._pId, 
-								new Page(Arrays.copyOfRange(_bufPool, i*PAGE_SIZE, (i+1)*PAGE_SIZE)));
+						Minibase.DiskManager.write_page(_bufDescr[i]._pId, _bufPool[i]);
 					} catch (InvalidPageNumberException e) {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
@@ -130,7 +145,14 @@ public class BufMgr implements GlobalConst {
 					_bufDescr[i]._pId = pageno;
 					_bufDescr[i]._pinCount = 1;
 					_bufDescr[i]._dirtyBit = false;
-					System.arraycopy(page.getData(), 0, _bufPool, i*PAGE_SIZE, PAGE_SIZE);
+					try {
+						Minibase.DiskManager.read_page(pageno, _bufPool[i]);
+					} catch (InvalidPageNumberException | FileIOException
+							| IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					page.setPage(_bufPool[i]);
 					pFHash.insertEntry(pageno,i);
 					return;
 				}
@@ -180,6 +202,7 @@ public class BufMgr implements GlobalConst {
 			if(_bufDescr[fNo]._pinCount==0){
 				throw new PageUnPinnedException(null, "Page UnPinned Exception");			
 			}
+			_numOfUnpinned++;
 			_bufDescr[fNo]._pinCount--;
 			_bufDescr[fNo]._times.add(_time);
 			if(dirty) {
@@ -208,6 +231,7 @@ public class BufMgr implements GlobalConst {
 	 * @return the first page id of the new pages.__ null, if error.
 	 */
 	public PageId newPage(Page firstpage, int howmany) {
+
 		if(_numOfUnpinned + _numOfFreeFrames == 0) {
 			return null;
 		}
@@ -244,6 +268,7 @@ public class BufMgr implements GlobalConst {
 				_numOfUnpinned--;
 			}
 			_bufDescr[fNo].clear();
+			pFHash.removeEntry(globalPageId);
 		}
 		
 		try {
@@ -264,8 +289,7 @@ public class BufMgr implements GlobalConst {
 		int fNo = pFHash.getEntry(pageid);	
 		if(fNo >= 0){
 			try {
-				Minibase.DiskManager.write_page(_bufDescr[fNo]._pId, 
-						new Page(Arrays.copyOfRange(_bufPool, fNo*PAGE_SIZE, (fNo+1)*PAGE_SIZE)));
+				Minibase.DiskManager.write_page(_bufDescr[fNo]._pId,_bufPool[fNo]);
 			} catch (InvalidPageNumberException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -295,8 +319,7 @@ public class BufMgr implements GlobalConst {
 		for(int i=0; i< _bufDescr.length; i++) {
 			if(_bufDescr[i]._dirtyBit) {
 				try {
-					Minibase.DiskManager.write_page(_bufDescr[i]._pId, 
-							new Page(Arrays.copyOfRange(_bufPool, i*PAGE_SIZE, (i+1)*PAGE_SIZE)));
+					Minibase.DiskManager.write_page(_bufDescr[i]._pId,_bufPool[i]);
 				} catch (InvalidPageNumberException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
