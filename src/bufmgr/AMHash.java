@@ -1,6 +1,7 @@
 package bufmgr;
 
 import global.PageId;
+
 import java.util.ArrayList;
 
 
@@ -60,5 +61,16 @@ public class AMHash {
 			}
 		}
 		return -1;
+	}
+	
+	public static void main (String argv[]) {
+
+		AMHash testH = new AMHash();
+		testH.insertEntry(new PageId(1), 3);
+		testH.removeEntry(new PageId(1));
+		testH.insertEntry(new PageId(1), 0);
+		int f = testH.getEntry(new PageId(1));
+		int ff = f + 2;
+		
 	}
 }

@@ -13,7 +13,7 @@ public class Descriptor {
 	
 	public Descriptor() {
 		_pId = null;
-		_pinCount = -1;
+		_pinCount = 0;
 		_dirtyBit = false;
 		_times = new ArrayList<>();
 	}
@@ -27,7 +27,7 @@ public class Descriptor {
 	
 	public void clear() {
 		_pId = null;
-		_pinCount = -1;
+		_pinCount = 0;
 		_dirtyBit = false;
 		_times = new ArrayList<>();
 	}

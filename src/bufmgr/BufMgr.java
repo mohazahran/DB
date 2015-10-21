@@ -25,7 +25,6 @@ public class BufMgr implements GlobalConst {
 	AMHash pFHash;
 	int _numOfFrames; // total number of frames in buffer pool
 	int _numOfUnpinned;// count of used frames with piCount zero
-	int _numOfFreeFrames; // count of unused frames
 	/**
 	 * Create the BufMgr object.
 	 * Allocate pages (frames) for the buffer pool in main memory and
@@ -45,8 +44,7 @@ public class BufMgr implements GlobalConst {
 			_bufDescr[i] = new Descriptor();
 		}
 		_numOfFrames = numbufs;
-		_numOfFreeFrames = numbufs;
-		_numOfUnpinned = 0;
+		_numOfUnpinned = numbufs;
 		
 		pFHash = new AMHash();
 	};
@@ -80,42 +78,22 @@ public class BufMgr implements GlobalConst {
 			page.setPage(_bufPool[fNumber]);
 		}
 		else {
-			if(_numOfUnpinned + _numOfFreeFrames == 0) {
+			if(_numOfUnpinned == 0) {
 				throw new BufferPoolExceededException(null, "Buffer Pool Exceeded");
-			}
-			else if(_numOfFreeFrames > 0) {
-				_numOfFreeFrames--;
-				for(int i=0; i<_numOfFrames; i++) {
-					if(_bufDescr[i]._pId == null) {
-						// replace this page
-						_bufDescr[i]._pId = pageno;
-						_bufDescr[i]._pinCount = 1;
-						_bufDescr[i]._times.add(_time); _time++;
-						try {
-							Minibase.DiskManager.read_page(pageno, _bufPool[i]);
-						} catch (InvalidPageNumberException | FileIOException
-								| IOException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-						page.setPage(_bufPool[i]);
-						pFHash.insertEntry(pageno,i);
-						return;
-					}
-				}
 			}
 			else {
 				_numOfUnpinned--;
-				PageId replaceCandidate = chooseReplacement();
-				int i = replaceCandidate.pid;
+				int i = chooseReplacement();
 
 				// replace this page
 				_bufDescr[i]._times.clear();
 				_bufDescr[i]._times.add(_time); _time++;
 				
 				if(_bufDescr[i]._dirtyBit == false) {
-					pFHash.removeEntry(_bufDescr[i]._pId);
-					_bufDescr[i]._pId = pageno;
+					if(_bufDescr[i]._pId != null) {
+						pFHash.removeEntry(_bufDescr[i]._pId);
+					}
+					_bufDescr[i]._pId = new PageId(pageno.pid);
 					_bufDescr[i]._pinCount = 1;							
 					try {
 						Minibase.DiskManager.read_page(pageno, _bufPool[i]);
@@ -142,7 +120,7 @@ public class BufMgr implements GlobalConst {
 						e.printStackTrace();
 					}
 					pFHash.removeEntry(_bufDescr[i]._pId);
-					_bufDescr[i]._pId = pageno;
+					_bufDescr[i]._pId = new PageId(pageno.pid);
 					_bufDescr[i]._pinCount = 1;
 					_bufDescr[i]._dirtyBit = false;
 					try {
@@ -160,23 +138,23 @@ public class BufMgr implements GlobalConst {
 		}
 	};
 
-	private PageId chooseReplacement() {
+	private int chooseReplacement() {
 		// TODO Auto-generated method stub
 		float minCRF = 1000000;
-		PageId rPage = null;
+		int fNum = -1;
 		for (int i =0; i<_bufDescr.length; i++){
-			if(_bufDescr[i]._pinCount==0){
+			if(_bufDescr[i]._pinCount == 0){
 				float tempCRF = 0;
 				for(int t=0; t<_bufDescr[i]._times.size();t++){
 					tempCRF += (float)1.0/(float)(_time-_bufDescr[i]._times.get(t)+1);
 				}
 				if(tempCRF<minCRF){
 					minCRF = tempCRF;
-					rPage = _bufDescr[i]._pId;
+					fNum = i;
 				}
 			}				
 		}
-		return rPage;
+		return fNum;
 	}
 
 	/**
@@ -194,8 +172,9 @@ public class BufMgr implements GlobalConst {
 	 *
 	 * @param pageno page number in the Minibase.
 	 * @param dirty the dirty bit of the frame
+	 * @throws HashEntryNotFoundException 
 	 */
-	public void unpinPage(PageId pageno, boolean dirty) throws PageUnPinnedException {
+	public void unpinPage(PageId pageno, boolean dirty) throws PageUnPinnedException, HashEntryNotFoundException {
 		
 		int fNo = pFHash.getEntry(pageno);	
 		if(fNo >= 0){
@@ -211,8 +190,7 @@ public class BufMgr implements GlobalConst {
 			_time++;	
 		}
 		else{
-			return;
-			//TODO add exptn.
+			throw new HashEntryNotFoundException(null, "Hash Entry Not Found Exception");
 		}
 	};
 
@@ -232,7 +210,7 @@ public class BufMgr implements GlobalConst {
 	 */
 	public PageId newPage(Page firstpage, int howmany) {
 
-		if(_numOfUnpinned + _numOfFreeFrames == 0) {
+		if(_numOfUnpinned  == 0) {
 			return null;
 		}
 		
@@ -263,9 +241,8 @@ public class BufMgr implements GlobalConst {
 		
 		int fNo = pFHash.getEntry(globalPageId);
 		if(fNo >= 0) {
-			_numOfFreeFrames++;
-			if(_bufDescr[fNo]._pinCount == 0) {
-				_numOfUnpinned--;
+			if(_bufDescr[fNo]._pinCount > 0) {
+				throw new PagePinnedException(null, "Page Pinned Exception");
 			}
 			_bufDescr[fNo].clear();
 			pFHash.removeEntry(globalPageId);
