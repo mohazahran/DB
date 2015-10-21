@@ -28,7 +28,7 @@ public class AMHash {
 			return false;
 		}
 		
-		_buckets[hValue].add(new BucketEntry(pageNumber,frameNumber));
+		_buckets[hValue].add(new BucketEntry(new PageId(pageNumber.pid),frameNumber));
 		return true;
 	}
 	
@@ -61,16 +61,5 @@ public class AMHash {
 			}
 		}
 		return -1;
-	}
-	
-	public static void main (String argv[]) {
-
-		AMHash testH = new AMHash();
-		testH.insertEntry(new PageId(1), 3);
-		testH.removeEntry(new PageId(1));
-		testH.insertEntry(new PageId(1), 0);
-		int f = testH.getEntry(new PageId(1));
-		int ff = f + 2;
-		
 	}
 }
